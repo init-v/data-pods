@@ -10,11 +10,19 @@ Create and manage portable, consent-scoped database pods. Handles document inges
 
 ## Architecture
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Ingestion  │ ──► │   DB Pods   │ ──► │  Generation │
-│  (ingest)   │     │  (storage)  │     │   (query)   │
-└─────────────┘     └─────────────┘     └─────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Ingestion  │ ──► │   DB Pods   │ ──► │  Generation │ ──► │   Export    │
+│  (ingest)   │     │  (storage)  │     │   (query)   │     │ (md/khoj/vpod)│
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
+
+## What's New (v0.4)
+- **Web Clipping**: Grab articles from URLs directly
+- **Notion Import**: Import pages from Notion
+- **PDF Support**: Now works with PyPDF2
+- **Export to Markdown**: Portable .md for ChatGPT/Claude
+- **Export to Khoj**: JSON format compatible with Khoj import
+- **Pod Statistics**: Document count, text size, embeddings info
 
 ## Triggers
 - "create a pod" / "new pod"
@@ -24,6 +32,11 @@ Create and manage portable, consent-scoped database pods. Handles document inges
 - "ingest documents" / "add files"
 - "semantic search" / "find相关内容"
 - "export pod" / "pack pod"
+- "pod stats" / "pod statistics"
+- "export to markdown" / "export for chatgpt"
+- "export to khoj"
+- "clip url" / "save webpage" / "web clip"
+- "import from notion" / "notion page"
 
 ## Core Features
 
@@ -56,9 +69,29 @@ When user wants to search:
 When user asks to search notes:
 1. Run: `python3 .../scripts/pod.py query <pod> --text "<query>"`
 
-### 6. Export
-When user asks to export:
-1. Run: `python3 .../scripts/podsync.py pack <pod>`
+### 6. Export Pods
+When user asks to export a pod:
+1. Ask for pod name and format (markdown/khoj)
+2. For Markdown (LLM-ready): `python3 .../scripts/export_utils.py export-md <pod> [--output path]`
+3. For Khoj format: `python3 .../scripts/export_utils.py export-khoj <pod> [--output path]`
+4. Returns portable .md file or Khoj-compatible JSON
+
+### 7. Pod Statistics
+When user asks for pod stats:
+1. Run: `python3 .../scripts/export_utils.py stats <pod>`
+2. Shows document count, total text, embeddings, file types
+
+### 8. Web Clipping
+When user wants to save a webpage:
+1. Ask for pod name and URL
+2. Run: `python3 .../scripts/webclip.py clip <pod> <url> [--title "title"]`
+3. Saves webpage content to pod
+
+### 9. Notion Import
+When user wants to import from Notion:
+1. Ask for pod name and Notion page ID
+2. Set NOTION_TOKEN env var or pass --token
+3. Run: `python3 .../scripts/notion_import.py import <pod> --page-id <id> [--token <token>]
 
 ## Dependencies
 ```bash
@@ -87,6 +120,21 @@ python3 .../scripts/ingest.py list research
 
 # Query notes
 python3 .../scripts/pod.py query research --text "..."
+
+# Export to Markdown (for ChatGPT/Claude)
+python3 .../scripts/export_utils.py export-md research
+
+# Export to Khoj format
+python3 .../scripts/export_utils.py export-khoj research
+
+# Pod statistics
+python3 .../scripts/export_utils.py stats research
+
+# Web clipping
+python3 .../scripts/webclip.py clip research https://example.com/article
+
+# Notion import
+python3 .../scripts/notion_import.py import research --page-id <notion-id> --token <token>
 ```
 
 ## Notes
