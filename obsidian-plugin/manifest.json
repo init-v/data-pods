@@ -1,0 +1,9 @@
+{
+  "id": "data-pods-connector",
+  "name": "Data Pods Connector",
+  "version": "0.1.0",
+  "description": "Connect to your Data Pods, search and insert content",
+  "author": "VR Global",
+  "authorUrl": "https://github.com/init-v/data-pods",
+  "isDesktopOnly": false
+}

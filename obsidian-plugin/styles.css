@@ -1,0 +1,7 @@
+.suggestion-title {
+  font-weight: 600;
+}
+.suggestion-type {
+  color: var(--text-muted);
+  font-size: 0.8em;
+}

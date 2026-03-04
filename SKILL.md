@@ -20,9 +20,8 @@ Create and manage portable, consent-scoped database pods. Handles document inges
 - **Web Clipping**: Grab articles from URLs directly
 - **Notion Import**: Import pages from Notion
 - **PDF Support**: Now works with PyPDF2
-- **Export to Markdown**: Portable .md for ChatGPT/Claude
-- **Export to Khoj**: JSON format compatible with Khoj import
-- **Pod Statistics**: Document count, text size, embeddings info
+- **Obsidian Plugin**: Connect pods from Obsidian
+- **API Server**: Expose pods via REST API
 
 ## Triggers
 - "create a pod" / "new pod"
@@ -91,9 +90,13 @@ When user wants to save a webpage:
 When user wants to import from Notion:
 1. Ask for pod name and Notion page ID
 2. Set NOTION_TOKEN env var or pass --token
-3. Run: `python3 .../scripts/notion_import.py import <pod> --page-id <id> [--token <token>]
+3. Run: `python3 .../scripts/notion_import.py import <pod> --page-id <id> [--token <token>]`
 
-## Dependencies
+### 10. Obsidian Plugin
+When user wants to use pods in Obsidian:
+1. Copy `obsidian-plugin/` folder to your Obsidian plugins folder
+2. Or run API server: `python3 .../pod_server.py`
+3. Configure pods path in Obsidian settings
 ```bash
 pip install PyPDF2 python-docx pillow pytesseract sentence-transformers
 ```
