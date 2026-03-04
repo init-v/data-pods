@@ -74,6 +74,45 @@ python3 pod.py export my-research --output my-research.zip
 
 ---
 
+## 🔐 Consent Layer
+
+**Agents only access what you permit.**
+
+Data Pods include a built-in consent layer. Before any agent can query your pods, you must grant explicit permission.
+
+### Consent Commands
+
+```bash
+# Grant an agent access to a pod
+python3 consent.py grant --pod my-research --agent openclaw
+
+# Grant with expiration (30 days)
+python3 consent.py grant --pod my-research --agent openclaw --expires 30
+
+# List all grants
+python3 consent.py list
+
+# Check if agent has access (returns 0 if yes, 1 if no)
+python3 consent.py check --pod my-research --agent openclaw
+
+# Revoke access
+python3 consent.py revoke --pod my-research --agent openclaw
+```
+
+### How It Works
+
+1. Agent requests data from a pod
+2. Consent layer checks for active grant
+3. If no grant → access denied
+4. If expired grant → access denied
+5. All queries logged for audit
+
+### Storage
+
+Grants stored in `~/.config/data-pods/consents/grants.json`
+
+---
+
 ## Pod Types
 
 - **scholar** — Research papers, papers, embeddings
