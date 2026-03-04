@@ -61,6 +61,36 @@ python3 pod.py export my-research --output my-research.zip
 
 ---
 
+## v0.2 — Document Ingestion with Embeddings
+
+```bash
+# Install dependencies
+pip install PyPDF2 python-docx pillow pytesseract sentence-transformers
+
+# Ingest a folder of documents
+python3 ingest.py ingest research ./documents/
+
+# Semantic search across all documents
+python3 ingest.py search research "what did I read about transformers?"
+
+# List ingested documents
+python3 ingest.py list research
+```
+
+### Supported Formats
+- PDF (via PyPDF2)
+- TXT, MD, Markdown
+- DOCX (via python-docx)
+- Images: PNG, JPG (OCR via pytesseract)
+
+### Features
+- Auto-chunks large documents for better retrieval
+- Embeddings for semantic search
+- File hash prevents duplicate ingestion
+- Citations with source filename
+
+---
+
 ## Commands
 
 | Command | Description |
