@@ -834,6 +834,52 @@ class QAHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
     
+    def do_GET(self):
+        """Handle health check and stats requests."""
+        if self.path == "/health" or self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            result = {"status": "ok", "service": "data-pods-qa"}
+            self.wfile.write(json.dumps(result).encode())
+        elif self.path.startswith("/stats"):
+            # Return pod statistics
+            try:
+                pods_info = []
+                for pod_path in PODS_DIR.iterdir():
+                    if pod_path.is_dir():
+                        sqlite_file = pod_path / "data.sqlite"
+                        if sqlite_file.exists():
+                            import sqlite3
+                            conn = sqlite3.connect(str(sqlite_file))
+                            cur = conn.cursor()
+                            cur.execute("SELECT COUNT(*) FROM documents")
+                            doc_count = cur.fetchone()[0]
+                            cur.execute("SELECT COUNT(*) FROM tags")
+                            tag_count = cur.fetchone()[0]
+                            conn.close()
+                            
+                            pods_info.append({
+                                "name": pod_path.name,
+                                "documents": doc_count,
+                                "tags": tag_count
+                            })
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                result = {"success": True, "pods": pods_info}
+                self.wfile.write(json.dumps(result).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                result = {"success": False, "error": str(e)}
+                self.wfile.write(json.dumps(result).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def log_message(self, format, *args):
         print(f"{self.client_address[0]} - {format % args}")
 
