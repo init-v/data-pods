@@ -173,7 +173,7 @@ def build_context(docs: List[dict], max_chars: int = 4000) -> str:
             context += content
     return context.strip()
 
-def generate_answer(question: str, context: str, model: str = "minimax/MiniMax-M2.5") -> str:
+def generate_answer(question: str, context: str, model: str = "openai-codex/gpt-5.2-codex") -> str:
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return {"error": "Set OPENROUTER_API_KEY env var"}
@@ -300,6 +300,12 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .sources-list{background:#1a1a1a;border-radius:12px;padding:15px;margin-top:20px}
         .sources-list h3{color:#888;margin:0 0 10px;font-size:0.9em}
         .source-item{padding:8px 12px;background:#2a2a2a;border-radius:6px;margin-bottom:6px;font-size:0.9em;display:flex;justify-content:space-between}
+        
+        .upload-item{background:#2a2a2a;border-radius:8px;padding:10px 12px;margin-bottom:8px}
+        .upload-row{display:flex;justify-content:space-between;align-items:center;font-size:0.9em}
+        .progress{height:6px;background:#333;border-radius:999px;overflow:hidden;margin-top:8px}
+        .progress-bar{height:100%;width:0;background:#22c55e;transition:width .2s}
+        .progress-text{font-size:12px;color:#888;margin-left:8px}
         
         .loading{color:#888;font-style:italic}
         .toast{position:fixed;bottom:20px;right:20px;background:#22c55e;color:#fff;padding:12px 20px;border-radius:8px;opacity:0;transition:opacity 0.3s}
@@ -465,23 +471,83 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             const list=document.getElementById('uploadList');
             
             for(const file of files){
-                list.innerHTML+='<div class="source-item">Uploading '+file.name+'...</div>';
+                const item=document.createElement('div');
+                item.className='upload-item';
+                item.innerHTML=`
+                  <div class="upload-row">
+                    <span>${file.name}</span>
+                    <span class="progress-text">0%</span>
+                  </div>
+                  <div class="progress"><div class="progress-bar"></div></div>
+                `;
+                list.prepend(item);
                 
-                const content=await file.text();
-                const resp=await fetch('/add',{
-                    method:'POST',
-                    headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({pod,filename:file.name,content})
+                const progressText=item.querySelector('.progress-text');
+                const progressBar=item.querySelector('.progress-bar');
+                
+                // Read file with progress
+                const content=await readFileWithProgress(file, p=>{
+                    progressText.textContent=`${p}% (reading)`;
+                    progressBar.style.width=`${p}%`;
                 });
-                const data=await resp.json();
                 
-                if(data.success){
-                    showToast('✓ Added '+file.name);
-                    loadSources();
-                }else{
-                    showToast('❌ '+data.error);
-                }
+                // Upload with progress
+                await uploadWithProgress({pod, filename:file.name, content}, p=>{
+                    progressText.textContent=`${p}% (uploading)`;
+                    progressBar.style.width=`${p}%`;
+                }).then(data=>{
+                    if(data.success){
+                        progressText.textContent='✓ Done';
+                        progressBar.style.width='100%';
+                        showToast('✓ Added '+file.name);
+                        loadSources();
+                    }else{
+                        progressText.textContent='✕ Failed';
+                        showToast('❌ '+data.error);
+                    }
+                }).catch(err=>{
+                    progressText.textContent='✕ Failed';
+                    showToast('❌ '+err);
+                });
             }
+        }
+
+        function readFileWithProgress(file, onProgress){
+            return new Promise((resolve, reject)=>{
+                const reader=new FileReader();
+                reader.onprogress=e=>{
+                    if(e.lengthComputable){
+                        const p=Math.round((e.loaded/e.total)*100);
+                        onProgress(p);
+                    }
+                };
+                reader.onload=()=>resolve(reader.result);
+                reader.onerror=()=>reject('Read error');
+                reader.readAsText(file);
+            });
+        }
+
+        function uploadWithProgress(payload, onProgress){
+            return new Promise((resolve, reject)=>{
+                const xhr=new XMLHttpRequest();
+                xhr.open('POST','/add');
+                xhr.setRequestHeader('Content-Type','application/json');
+                xhr.upload.onprogress=e=>{
+                    if(e.lengthComputable){
+                        const p=Math.round((e.loaded/e.total)*100);
+                        onProgress(p);
+                    }
+                };
+                xhr.onload=()=>{
+                    if(xhr.status===200){
+                        resolve(JSON.parse(xhr.responseText));
+                    }else{
+                        reject('Upload failed');
+                    }
+                };
+                xhr.onerror=()=>reject('Network error');
+                xhr.send(JSON.stringify(payload));
+            });
         }
         
         loadPods();
