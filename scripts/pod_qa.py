@@ -16,6 +16,77 @@ import urllib.parse
 import requests
 import numpy as np
 
+# Size limits for uploads
+MAX_CONTENT_SIZE = 50 * 1024 * 1024  # 50MB limit
+CHUNK_SIZE = 1024 * 1024  # 1MB chunks for streaming
+
+
+# ============ MULTIPART PARSING ============
+
+def parse_multipart_form_data(headers, body):
+    """Parse multipart/form-data request body.
+    
+    Returns dict with 'filename', 'content', 'pod' fields.
+    """
+    import re
+    
+    content_type = headers.get('Content-Type', '')
+    match = re.search(r'boundary=(?P<boundary>["]?[^" ]+["]?)', content_type)
+    if not match:
+        return None
+    
+    boundary = match.group('boundary')
+    # Handle quoted boundaries
+    boundary = boundary.strip('"')
+    
+    # Split by boundary
+    parts = body.split(('--' + boundary).encode())
+    
+    result = {
+        'filename': None,
+        'content': None,
+        'pod': 'openclaw'
+    }
+    
+    for part in parts:
+        if not part or part.strip() in (b'', b'--', b'--\r\n'):
+            continue
+            
+        # Split headers from content
+        if b'\r\n\r\n' in part:
+            header_section, content = part.split(b'\r\n\r\n', 1)
+        elif b'\n\n' in part:
+            header_section, content = part.split(b'\n\n', 1)
+        else:
+            continue
+        
+        # Parse headers
+        headers_str = header_section.decode('utf-8', errors='ignore')
+        
+        # Extract filename from Content-Disposition
+        filename_match = re.search(r'filename="([^"]+)"', headers_str)
+        if filename_match:
+            result['filename'] = filename_match.group(1)
+        
+        # Check for form fields
+        name_match = re.search(r'name="([^"]+)"', headers_str)
+        if name_match:
+            field_name = name_match.group(1)
+            # Remove trailing \r\n if present
+            if content.endswith(b'\r\n'):
+                content = content[:-2]
+            elif content.endswith(b'\n'):
+                content = content[:-1]
+            
+            if field_name == 'filename':
+                result['filename'] = content.decode('utf-8', errors='ignore')
+            elif field_name == 'content':
+                result['content'] = content.decode('utf-8', errors='ignore')
+            elif field_name == 'pod':
+                result['pod'] = content.decode('utf-8', errors='ignore').strip()
+    
+    return result
+
 try:
     from sentence_transformers import SentenceTransformer
     EMBEDDINGS_AVAILABLE = True
@@ -556,26 +627,89 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             });
         }
 
+        const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+        
+        // Chunked upload function for large files
+        async function uploadChunked(payload, onProgress) {
+            const content = payload.content;
+            const totalChunks = Math.ceil(content.length / CHUNK_SIZE);
+            const filename = payload.filename;
+            const pod = payload.pod;
+            
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, content.length);
+                const chunk = content.substring(start, end);
+                
+                const response = await fetch(
+                    `/upload/chunk?pod=${encodeURIComponent(pod)}&filename=${encodeURIComponent(filename)}&chunk=${i}&total=${totalChunks}`,
+                    {
+                        method: 'PUT',
+                        body: chunk
+                    }
+                );
+                
+                const data = await response.json();
+                
+                if (!data.success) {
+                    throw new Error(data.error || 'Chunk upload failed');
+                }
+                
+                // Report progress
+                const progress = Math.round((end / content.length) * 100);
+                onProgress(progress);
+                
+                // If we got final result, return it
+                if (data.doc_id) {
+                    return data;
+                }
+            }
+            
+            return { success: true, filename };
+        }
+
         function uploadWithProgress(payload, onProgress){
+            // Use chunked upload for files > 5MB
+            const content = payload.content;
+            if (content.length > 5 * 1024 * 1024) {
+                return uploadChunked(payload, onProgress);
+            }
+            
             return new Promise((resolve, reject)=>{
-                const xhr=new XMLHttpRequest();
+                const formData = new FormData();
+                formData.append('pod', payload.pod);
+                formData.append('filename', payload.filename);
+                formData.append('content', payload.content);
+                
+                const xhr = new XMLHttpRequest();
                 xhr.open('POST','/add');
-                xhr.setRequestHeader('Content-Type','application/json');
-                xhr.upload.onprogress=e=>{
+                
+                xhr.upload.onprogress = e => {
                     if(e.lengthComputable){
-                        const p=Math.round((e.loaded/e.total)*100);
+                        const p = Math.round((e.loaded/e.total)*100);
                         onProgress(p);
                     }
                 };
-                xhr.onload=()=>{
-                    if(xhr.status===200){
-                        resolve(JSON.parse(xhr.responseText));
-                    }else{
-                        reject('Upload failed');
+                
+                xhr.onload = () => {
+                    if(xhr.status >= 200 && xhr.status < 300){
+                        try {
+                            resolve(JSON.parse(xhr.responseText));
+                        } catch(e) {
+                            reject('Invalid response');
+                        }
+                    } else {
+                        try {
+                            const err = JSON.parse(xhr.responseText);
+                            reject(err.error || 'Upload failed');
+                        } catch(e) {
+                            reject('Upload failed: ' + xhr.status);
+                        }
                     }
                 };
-                xhr.onerror=()=>reject('Network error');
-                xhr.send(JSON.stringify(payload));
+                
+                xhr.onerror = () => reject('Network error');
+                xhr.send(formData);
             });
         }
         
@@ -626,21 +760,149 @@ class QAHandler(BaseHTTPRequestHandler):
     
     def do_POST(self):
         if self.path == "/add":
-            length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length)
-            data = json.loads(body)
+            content_type = self.headers.get('Content-Type', '')
             
-            result = add_document(data.get("pod", "openclaw"), data.get("filename"), data.get("content"))
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                
+                # Check size limit
+                if length > MAX_CONTENT_SIZE:
+                    self.send_response(413)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    error = {"success": False, "error": f"File too large. Maximum size is {MAX_CONTENT_SIZE // (1024*1024)}MB"}
+                    self.wfile.write(json.dumps(error).encode())
+                    return
+                
+                body = self.rfile.read(length)
+                
+                # Handle multipart/form-data
+                if 'multipart/form-data' in content_type:
+                    data = parse_multipart_form_data(dict(self.headers), body)
+                    if not data or not data.get('content'):
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        error = {"success": False, "error": "Invalid multipart data. Need 'content' and 'filename' fields."}
+                        self.wfile.write(json.dumps(error).encode())
+                        return
+                    
+                    pod_name = data.get('pod', 'openclaw')
+                    filename = data.get('filename', 'untitled.txt')
+                    content = data['content']
+                else:
+                    # Fallback to JSON
+                    try:
+                        data = json.loads(body)
+                        pod_name = data.get("pod", "openclaw")
+                        filename = data.get("filename")
+                        content = data.get("content", "")
+                    except json.JSONDecodeError as e:
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        error = {"success": False, "error": f"Invalid JSON: {str(e)}"}
+                        self.wfile.write(json.dumps(error).encode())
+                        return
+                
+                # Validate input
+                if not filename:
+                    filename = "untitled.txt"
+                if not content:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    error = {"success": False, "error": "Content is required"}
+                    self.wfile.write(json.dumps(error).encode())
+                    return
+                
+                # Add document
+                result = add_document(pod_name, filename, content)
+                
+                self.send_response(200 if result.get('success') else 400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode())
+                
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                error = {"success": False, "error": f"Server error: {str(e)}"}
+                self.wfile.write(json.dumps(error).encode())
         else:
             self.send_response(404)
             self.end_headers()
     
     def log_message(self, format, *args):
         print(f"{self.client_address[0]} - {format % args}")
+
+    def do_PUT(self):
+        """Handle chunked uploads via PUT for streaming large files."""
+        if self.path.startswith("/upload/chunk"):
+            # Parse query params
+            params = urllib.parse.parse_qs(self.path.split("?")[1]) if "?" in self.path else {}
+            chunk_index = int(params.get("chunk", [0])[0])
+            total_chunks = int(params.get("total", [1])[0])
+            filename = params.get("filename", ["file"])[0]
+            pod = params.get("pod", ["openclaw"])[0]
+            
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                
+                # Check chunk size
+                if length > CHUNK_SIZE * 2:  # Allow some overflow
+                    self.send_response(413)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    error = {"success": False, "error": f"Chunk too large. Max {CHUNK_SIZE // (1024*1024)}MB per chunk"}
+                    self.wfile.write(json.dumps(error).encode())
+                    return
+                
+                chunk_data = self.rfile.read(length)
+                
+                # Store chunk temporarily (in production, use temp files)
+                import tempfile
+                temp_dir = PODS_DIR / ".tmp"
+                temp_dir.mkdir(exist_ok=True)
+                
+                # Use pod+filename as key for chunks
+                key = hashlib.md5(f"{pod}:{filename}".encode()).hexdigest()
+                chunk_file = temp_dir / f"{key}.chunk_{chunk_index}"
+                
+                with open(chunk_file, 'wb') as f:
+                    f.write(chunk_data)
+                
+                # Check if all chunks received
+                if chunk_index == total_chunks - 1:
+                    # Reassemble file
+                    content_parts = []
+                    for i in range(total_chunks):
+                        chunk_file = temp_dir / f"{key}.chunk_{i}"
+                        if chunk_file.exists():
+                            with open(chunk_file, 'rb') as f:
+                                content_parts.append(f.read())
+                            chunk_file.unlink()  # Clean up
+                    
+                    content = b''.join(content_parts).decode('utf-8', errors='ignore')
+                    result = add_document(pod, filename, content)
+                else:
+                    result = {"success": True, "status": "chunk_received", "chunk": chunk_index + 1, "total": total_chunks}
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode())
+                
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                error = {"success": False, "error": str(e)}
+                self.wfile.write(json.dumps(error).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
 
 def run_server(port: int = 7868):
     server = HTTPServer(("0.0.0.0", port), QAHandler)
