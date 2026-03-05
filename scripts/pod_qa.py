@@ -33,7 +33,8 @@ def load_pod_db(pod_name: str):
     db_path = PODS_DIR / pod_name / "data.sqlite"
     if not db_path.exists():
         return None
-    return sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path))
+    return conn
 
 def init_pod(pod_name: str):
     """Initialize a pod if it doesn't exist."""
@@ -71,6 +72,20 @@ def add_document(pod_name: str, filename: str, content: str) -> dict:
     c = conn.cursor()
     file_hash = get_file_hash(content)
     
+    # Ensure table exists (for older pods)
+    c.execute('''CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT,
+        file_type TEXT,
+        content TEXT,
+        file_hash TEXT,
+        chunks TEXT,
+        embedding BLOB,
+        created_at TEXT,
+        updated_at TEXT
+    )''')
+    conn.commit()
+    
     # Check if already exists
     c.execute("SELECT id FROM documents WHERE file_hash = ?", (file_hash,))
     if c.fetchone():
@@ -107,6 +122,20 @@ def list_sources(pod_name: str) -> List[dict]:
         return []
     
     c = conn.cursor()
+    # Ensure table exists
+    c.execute('''CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT,
+        file_type TEXT,
+        content TEXT,
+        file_hash TEXT,
+        chunks TEXT,
+        embedding BLOB,
+        created_at TEXT,
+        updated_at TEXT
+    )''')
+    conn.commit()
+    
     c.execute("""SELECT id, filename, file_type, LENGTH(content) as size, created_at 
                 FROM documents ORDER BY created_at DESC""")
     
