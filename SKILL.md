@@ -22,6 +22,8 @@ Create and manage portable, consent-scoped database pods. Handles document inges
 - **PDF Support**: Now works with PyPDF2
 - **Obsidian Plugin**: Connect pods from Obsidian
 - **API Server**: Expose pods via REST API
+- **Q&A Server**: Chat with your pods via HTTP API
+- **PodSync**: Sync pods across devices
 
 ## Triggers
 - "create a pod" / "new pod"
@@ -95,8 +97,21 @@ When user wants to import from Notion:
 ### 10. Obsidian Plugin
 When user wants to use pods in Obsidian:
 1. Copy `obsidian-plugin/` folder to your Obsidian plugins folder
-2. Or run API server: `python3 .../pod_server.py`
+2. Or run API server: `python3 .../scripts/pod_qa.py server`
 3. Configure pods path in Obsidian settings
+
+### 11. Q&A Server (Chat with your Pods)
+When user wants to chat with their knowledge base:
+1. Run: `python3 .../scripts/pod_qa.py server [--port 8080]`
+2. Access via REST API or use the built-in UI
+3. Supports conversational queries over your pod data
+
+### 12. PodSync (Cross-device Sync)
+When user wants to sync pods across devices:
+1. Run: `python3 .../scripts/podsync.py list` - List pods
+2. Run: `python3 .../scripts/podsync.py sync <pod>` - Sync a pod
+3. Run: `python3 .../scripts/podsync.py export <pod> --output <file>` - Export for sharing
+
 ```bash
 pip install PyPDF2 python-docx pillow pytesseract sentence-transformers
 ```
@@ -138,6 +153,14 @@ python3 .../scripts/webclip.py clip research https://example.com/article
 
 # Notion import
 python3 .../scripts/notion_import.py import research --page-id <notion-id> --token <token>
+
+# Q&A Server (chat with your pods)
+python3 .../scripts/pod_qa.py server --port 8080
+
+# PodSync - sync across devices
+python3 .../scripts/podsync.py list
+python3 .../scripts/podsync.py sync research
+python3 .../scripts/podsync.py export research --output research.zip
 ```
 
 ## Notes
