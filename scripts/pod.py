@@ -183,6 +183,62 @@ def export_pod(pod_name: str, output_path: str = None):
     print(f"✅ Exported '{pod_name}' to {output_path}")
     return True
 
+def backup_pod(pod_name: str):
+    """Create timestamped backup of a pod."""
+    import zipfile
+    import shutil
+    from datetime import datetime
+    
+    pod_path = PODS_DIR / pod_name
+    if not pod_path.exists():
+        print(f"Error: Pod '{pod_name}' not found")
+        return False
+    
+    # Create backups directory
+    backups_dir = PODS_DIR / "backups"
+    backups_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamped backup name
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_name = f"{pod_name}_{timestamp}.zip"
+    backup_path = backups_dir / backup_name
+    
+    # Create zip backup
+    with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file in pod_path.rglob("*"):
+            if file.is_file():
+                arcname = file.relative_to(pod_path)
+                zipf.write(file, arcname)
+    
+    # Clean old backups (keep last 10)
+    backups = sorted(backups_dir.glob(f"{pod_name}_*.zip"))
+    while len(backups) > 10:
+        old = backups.pop(0)
+        old.unlink()
+        print(f"🗑️  Removed old backup: {old.name}")
+    
+    print(f"✅ Backed up '{pod_name}' to {backup_path}")
+    return True
+
+def list_backups(pod_name: str = None):
+    """List available backups."""
+    backups_dir = PODS_DIR / "backups"
+    if not backups_dir.exists():
+        print("No backups found.")
+        return
+    
+    pattern = f"{pod_name}_*.zip" if pod_name else "*.zip"
+    backups = sorted(backups_dir.glob(pattern), reverse=True)
+    
+    if not backups:
+        print(f"No backups found for '{pod_name}'." if pod_name else "No backups found.")
+        return
+    
+    print(f"📦 Backups{' for ' + pod_name if pod_name else ''}:")
+    for b in backups:
+        size_kb = b.stat().st_size / 1024
+        print(f"  - {b.name} ({size_kb:.1f} KB)")
+
 def main():
     parser = argparse.ArgumentParser(description="Data Pods v0.1")
     sub = parser.add_subparsers(dest="cmd")
@@ -209,6 +265,12 @@ def main():
     exp.add_argument("pod")
     exp.add_argument("--output", help="Output path")
     
+    backup = sub.add_parser("backup", help="Create timestamped backup")
+    backup.add_argument("pod", nargs="?", help="Pod name to backup (or omit for all)")
+    
+    backups_list = sub.add_parser("backups", help="List available backups")
+    backups_list.add_argument("pod", nargs="?", help="Filter by pod name")
+    
     args = parser.parse_args()
     
     if args.cmd in ("list", "init"):
@@ -221,6 +283,17 @@ def main():
         query_pod(args.pod, args.text, args.sql)
     elif args.cmd == "export":
         export_pod(args.pod, args.output)
+    elif args.cmd == "backup":
+        if args.pod:
+            backup_pod(args.pod)
+        else:
+            # Backup all pods
+            ensure_dir()
+            for d in PODS_DIR.iterdir():
+                if d.is_dir() and d.name != "backups" and (d / "metadata.json").exists():
+                    backup_pod(d.name)
+    elif args.cmd == "backups":
+        list_backups(args.pod)
     else:
         parser.print_help()
 
